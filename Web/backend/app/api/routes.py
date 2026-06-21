@@ -122,6 +122,7 @@ async def upload(
     # 4) 작업 등록(pending) 후 백그라운드 분석 시작
     jobs.create(
         task_id,
+        video_path=source,  # file=NFS경로 / url=URL. B(예성)가 task_id로 영상 위치 조회
         source_type=source_type,
         clip_count=clip_count,
         category=category,

@@ -7,7 +7,7 @@
 ===============================================================
 """
 
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -29,11 +29,23 @@ class StatusResponse(BaseModel):
     error: Optional[str] = None
 
 
+class Clip(BaseModel):
+    """
+    result 응답의 클립 1개. 명세서 필드만 노출한다.
+    analyze() 가 score/score_reason 등 추가 필드를 줘도(내부 저장엔 남음)
+    이 모델로 직렬화되며 응답에서는 자동으로 제외된다.
+    """
+    rank: int
+    start_ms: int
+    end_ms: int
+    duration_sec: float
+    reason: str
+    titles: list[str]
+
+
 class ResultResponse(BaseModel):
     """GET /result/{task_id} 응답 (status=done 일 때만)."""
     task_id: str
     status: str               # "done"
     video_duration_ms: int
-    # clips 는 analyze() 가 주는 형태를 그대로 통과시킨다.
-    # (rank/start_ms/end_ms/duration_sec/reason/titles + score 등 추가필드 보존)
-    clips: list[dict[str, Any]]
+    clips: list[Clip]         # 명세 6개 필드만 (score 등은 응답에서 제외)

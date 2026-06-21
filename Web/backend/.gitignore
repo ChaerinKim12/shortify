@@ -6,3 +6,7 @@ audio/
 results/
 .claude/
 *.log
+# SQLite (DB는 /nfs/team/Shortify 에 있어 레포에 올라가면 안 됨)
+*.db
+*.db-wal
+*.db-shm
