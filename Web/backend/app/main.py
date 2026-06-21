@@ -24,7 +24,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Shortify Backend (A파트)", lifespan=lifespan)
-app.include_router(router)
+# 명세서가 /api/ 기준이므로 모든 API 경로에 /api prefix 부여
+# (/health 는 라우터가 아니라 아래 앱에 직접 달려 루트에 그대로 둔다)
+app.include_router(router, prefix="/api")
 
 
 @app.get("/health")
