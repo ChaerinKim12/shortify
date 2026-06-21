@@ -47,6 +47,6 @@ def analyze(
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| POST | `/upload` | form-data: `source_type`("file"/"url"), `file`, `video_url`, `clip_count`(1~5), `category`, `user_prompt`. → `{task_id, status:"pending"}`. file은 `{NFS}/{task_id}.mp4` 저장(5GB 초과 413, file/url 둘 다 없으면 400) |
+| POST | `/upload` | form-data: `file`(선택), `youtube_url`(선택), `clip_count`(1~5, 필수), `category`(empathy/laughter/info/sadness/twist, 필수), `user_prompt`(선택). file/youtube_url 중 **하나만** 보냄(자동 판단). → `{task_id, status:"pending"}`. file은 `{NFS}/{task_id}.mp4` 저장(5GB 초과 413, 둘 다 없거나 둘 다 있으면 400). 백엔드가 내부적으로 source_type(file/url)을 만들어 analyze에 전달 |
 | GET | `/status/{task_id}` | `{task_id, status, progress, error}` (status: pending/processing/done/failed) |
 | GET | `/result/{task_id}` | done일 때 `{task_id, status, video_duration_ms, clips}`. 미완료 409, 없음 404 |
