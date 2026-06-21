@@ -6,10 +6,12 @@ POST /upload          분석 요청 접수 -> task_id 발급 + 백그라운드 �
 GET  /status/{task_id} 진행 상태 조회
 GET  /result/{task_id} 완료된 결과(클립) 조회
 
-[upload 의 file/url 분기 - 팀장 명세]
-- source_type="file": file 을 {NFS_DIR}/{task_id}.mp4 로 저장 후 그 경로를 source 로 analyze 에 전달
-- source_type="url" : video_url 을 그대로 source 로 analyze 에 전달 (다운로드는 analyze 내부)
-- file/url 둘 다 없으면 400
+[upload 의 file/url 분기 - API 명세]
+- source_type 필드는 없음. file 이 오면 파일 케이스, youtube_url 이 오면 URL 케이스로 자동 판단.
+  (내부적으로 source_type 을 만들어 analyze 에 넘긴다 — analyze 는 source 가 경로/URL 인지 알아야 함)
+- file  케이스: file 을 {NFS_DIR}/{task_id}.mp4 로 저장 후 그 경로를 source 로 analyze 에 전달
+- url   케이스: youtube_url 을 그대로 source 로 analyze 에 전달 (다운로드는 analyze 내부)
+- file/youtube_url 둘 다 없으면 400, 둘 다 있으면 400 (모호 입력 방지)
 - 파일 5GB 초과면 413
 ===============================================================
 """
@@ -27,7 +29,12 @@ from fastapi import (
 )
 
 from app.core import config, jobs
-from app.schemas import ResultResponse, StatusResponse, UploadResponse
+from app.schemas import (
+    ALLOWED_CATEGORIES,
+    ResultResponse,
+    StatusResponse,
+    UploadResponse,
+)
 from app.worker import run_analysis_task
 
 router = APIRouter()
@@ -73,32 +80,46 @@ async def _save_upload_to_nfs(file: UploadFile, task_id: str) -> str:
 @router.post("/upload", response_model=UploadResponse)
 async def upload(
     background_tasks: BackgroundTasks,
-    source_type: str = Form(...),
-    clip_count: int = Form(3),
-    category: str = Form(config.DEFAULT_CATEGORY),
+    clip_count: int = Form(...),
+    category: str = Form(...),
     user_prompt: str = Form(""),
     file: UploadFile | None = File(None),
-    video_url: str | None = Form(None),
+    youtube_url: str | None = Form(None),
 ) -> UploadResponse:
-    # 1) 기본 검증
-    if source_type not in ("file", "url"):
-        raise HTTPException(status_code=400, detail="source_type 은 'file' 또는 'url' 이어야 합니다.")
+    # 1) 필드 검증
     if not (1 <= clip_count <= 5):
         raise HTTPException(status_code=400, detail="clip_count 는 1~5 사이여야 합니다.")
+    if category not in ALLOWED_CATEGORIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"category 는 {sorted(ALLOWED_CATEGORIES)} 중 하나여야 합니다.",
+        )
+
+    # 2) file / youtube_url 자동 판단 (source_type 필드 없음)
+    has_file = file is not None and bool(file.filename)
+    has_url = bool(youtube_url)
+    if has_file and has_url:
+        raise HTTPException(
+            status_code=400,
+            detail="file 과 youtube_url 은 동시에 보낼 수 없습니다. 하나만 보내세요.",
+        )
+    if not has_file and not has_url:
+        raise HTTPException(
+            status_code=400,
+            detail="file 또는 youtube_url 중 하나는 반드시 필요합니다.",
+        )
 
     task_id = uuid.uuid4().hex
 
-    # 2) source_type 분기 -> analyze 에 넘길 source 결정
-    if source_type == "file":
-        if file is None:
-            raise HTTPException(status_code=400, detail="source_type='file' 인데 file 이 없습니다.")
+    # 3) 케이스별로 analyze 에 넘길 source / source_type 결정
+    if has_file:
+        source_type = "file"
         source = await _save_upload_to_nfs(file, task_id)
-    else:  # url
-        if not video_url:
-            raise HTTPException(status_code=400, detail="source_type='url' 인데 video_url 이 없습니다.")
-        source = video_url
+    else:
+        source_type = "url"
+        source = youtube_url
 
-    # 3) 작업 등록(pending) 후 백그라운드 분석 시작
+    # 4) 작업 등록(pending) 후 백그라운드 분석 시작
     jobs.create(
         task_id,
         source_type=source_type,

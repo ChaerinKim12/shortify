@@ -11,6 +11,9 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
+# 허용 카테고리 (API 명세 기준). upload 에서 이 집합으로 검증한다.
+ALLOWED_CATEGORIES = {"empathy", "laughter", "info", "sadness", "twist"}
+
 
 class UploadResponse(BaseModel):
     """POST /upload 응답: 작업 접수 확인."""
