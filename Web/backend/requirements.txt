@@ -1,0 +1,19 @@
+# Shortify 백엔드 (A파트) 패키지 목록
+# 설치 (서버 지침: uv 의무):
+#   uv pip install -r requirements.txt
+
+# --- 웹 서버 ---
+fastapi              # API 프레임워크
+uvicorn[standard]    # ASGI 서버
+python-multipart     # 파일 업로드(form-data) 파싱
+
+# --- 파이프라인 (Experiment 에서 이식) ---
+yt-dlp               # 유튜브 다운로드 + 히트맵
+librosa              # 음성 특징(음량/피치) 분석
+numpy                # 수치 계산
+soundfile            # librosa 오디오 입출력 백엔드
+requests             # 리턴제로 STT API 호출
+python-dotenv        # .env 에서 키 로드
+
+# --- AI파트가 recommend() 끼울 때 필요 (미리 포함) ---
+anthropic            # Claude API
