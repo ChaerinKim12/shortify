@@ -13,6 +13,7 @@ analyze() 가 더미든 실제 알고리즘이든 이 래퍼는 그대로 동작
 
 from app.analyze import analyze
 from app.core import jobs
+from app.render import render_clip
 
 
 def run_analysis_task(
@@ -38,3 +39,40 @@ def run_analysis_task(
     except Exception as e:
         # MVP: 에러 메시지를 문자열로 보관 (status API 에서 노출)
         jobs.update(task_id, status="failed", error=str(e))
+
+
+def run_render_task(
+    render_id: str,
+    input_path: str,
+    output_path: str,
+    start_ms: int,
+    end_ms: int,
+    title: str,
+    bg_color: str,
+    text_color: str,
+    title_position: str,
+    font_size_px: int,
+) -> None:
+    """
+    render_clip() 을 실행하고 결과/에러를 renders 에 기록한다.
+    run_analysis_task 와 동일 패턴:
+      pending(=render 접수 시점) -> processing(시작) -> done(성공) / failed(예외)
+    """
+    jobs.update_render(render_id, status="processing")
+
+    try:
+        render_clip(
+            input_path=input_path,
+            output_path=output_path,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            title=title,
+            bg_color=bg_color,
+            text_color=text_color,
+            title_position=title_position,
+            font_size_px=font_size_px,
+        )
+        jobs.update_render(render_id, status="done", output_path=output_path)
+    except Exception as e:
+        # 실패 메시지를 renders.error 에 보관 (render status API 에서 노출)
+        jobs.update_render(render_id, status="failed", error=str(e))

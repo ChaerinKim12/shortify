@@ -12,11 +12,20 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes import router
+from app.api import render as render_routes
 from app.core.config import ensure_dirs
+
+
+# 프론트(Vite dev 서버) 연동용 CORS 허용 origin. 배포/추가 시 여기에 한 줄씩 추가.
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
 
 @asynccontextmanager
@@ -27,9 +36,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Shortify Backend (A파트)", lifespan=lifespan)
+
+# CORS: 브라우저에서 프론트(다른 origin)가 API 를 호출할 수 있도록 허용
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # 명세서가 /api/ 기준이므로 모든 API 경로에 /api prefix 부여
 # (/health 는 라우터가 아니라 아래 앱에 직접 달려 루트에 그대로 둔다)
 app.include_router(router, prefix="/api")
+# 백엔드 B - 렌더 라우터
+app.include_router(render_routes.router, prefix="/api", tags=["render"])
 
 
 # ===============================================================
