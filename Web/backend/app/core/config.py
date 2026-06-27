@@ -23,13 +23,24 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 NFS_DIR = os.getenv("NFS_DIR", "/nfs/team/Shortify")
 UPLOAD_DIR = NFS_DIR
 
+# 백엔드 B(렌더) 결과물 저장 폴더. {RENDER_DIR}/{render_id}.mp4 로 저장한다.
+# 원본과 같은 NFS 아래 두어 A/B 가 같은 파일시스템을 공유한다.
+RENDER_DIR = os.getenv("RENDER_DIR", os.path.join(NFS_DIR, "renders"))
+
 # 기본 카테고리 (upload 에서 category 미지정 시)
 DEFAULT_CATEGORY = "empathy"
 
 # 업로드 파일 크기 상한 (5GB 초과 시 413). 테스트용으로 env 로 덮을 수 있음.
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", 5 * 1024 * 1024 * 1024))
 
+# 영상 합성(ffmpeg drawtext) 용 한글 폰트 (Pretendard v1.3.9, app/fonts/ 에 동봉)
+# 프론트와 동일한 Pretendard 사용. Bold(700)/ExtraBold(800) 두 굵기.
+FONTS_DIR = os.path.join(BASE_DIR, "app", "fonts")
+KOREAN_FONT_BOLD = os.path.join(FONTS_DIR, "Pretendard-Bold.otf")
+KOREAN_FONT_EXTRABOLD = os.path.join(FONTS_DIR, "Pretendard-ExtraBold.otf")
+
 
 def ensure_dirs() -> None:
-    """업로드 저장 폴더를 미리 만든다 (서버 기동 시 1회 호출)."""
+    """업로드/렌더 저장 폴더를 미리 만든다 (서버 기동 시 1회 호출)."""
     os.makedirs(UPLOAD_DIR, exist_ok=True)
+    os.makedirs(RENDER_DIR, exist_ok=True)

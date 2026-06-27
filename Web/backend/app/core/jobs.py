@@ -70,17 +70,23 @@ def init_db() -> None:
                 )
                 """
             )
-            # 백엔드 B 용 - 스키마만 만들어 둔다 (A 는 직접 쓰지 않음)
+            # 백엔드 B 용 렌더 작업 테이블.
+            #   error 컬럼은 실패 메시지 보관용 (tasks 와 달리 result_json 이 없어 전용 컬럼을 둠).
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS renders (
                     render_id   TEXT PRIMARY KEY,
                     task_id     TEXT,
                     status      TEXT,
-                    output_path TEXT
+                    output_path TEXT,
+                    error       TEXT
                 )
                 """
             )
+            # 이미 4컬럼으로 만들어진 DB 호환: error 컬럼이 없으면 추가한다.
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(renders)")}
+            if "error" not in cols:
+                conn.execute("ALTER TABLE renders ADD COLUMN error TEXT")
 
 
 def create(task_id: str, **fields) -> Optional[dict]:
@@ -175,6 +181,77 @@ def get(task_id: str) -> Optional[dict]:
         "result": result,
         "error": error,
         "video_path": row["video_path"],
+    }
+
+
+# ===============================================================
+# renders 테이블 (백엔드 B - 렌더 작업)
+#   tasks 의 create/get/update 와 같은 패턴.
+#   render_id 별 렌더 상태/결과경로/에러를 보관한다.
+# ===============================================================
+def create_render(render_id: str, task_id: str) -> Optional[dict]:
+    """새 렌더 작업을 등록한다 (status=pending)."""
+    with _lock:
+        with _connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO renders "
+                "(render_id, task_id, status, output_path, error) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (render_id, task_id, "pending", None, None),
+            )
+    return get_render(render_id)
+
+
+def update_render(
+    render_id: str,
+    status: Optional[str] = None,
+    output_path: Optional[str] = None,
+    error: Optional[str] = None,
+) -> None:
+    """렌더 작업 필드를 갱신한다 (None 인 인자는 건드리지 않음)."""
+    sets = []
+    params: list = []
+
+    if status is not None:
+        sets.append("status = ?")
+        params.append(status)
+    if output_path is not None:
+        sets.append("output_path = ?")
+        params.append(output_path)
+    if error is not None:
+        sets.append("error = ?")
+        params.append(error)
+
+    if not sets:
+        return  # 갱신할 값이 없으면 통과
+
+    params.append(render_id)
+    with _lock:
+        with _connect() as conn:
+            conn.execute(
+                f"UPDATE renders SET {', '.join(sets)} WHERE render_id = ?",
+                params,
+            )
+
+
+def get_render(render_id: str) -> Optional[dict]:
+    """렌더 작업을 조회한다. 없으면 None."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT render_id, task_id, status, output_path, error "
+            "FROM renders WHERE render_id = ?",
+            (render_id,),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "render_id": row["render_id"],
+        "task_id": row["task_id"],
+        "status": row["status"],
+        "output_path": row["output_path"],
+        "error": row["error"],
     }
 
 
