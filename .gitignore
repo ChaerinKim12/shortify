@@ -142,3 +142,12 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 .env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Algorithm audio/results output (generated artifacts, not source)
+Web/algorithm/audio/
+Web/algorithm/results/
+Web/algorithm/test_results/

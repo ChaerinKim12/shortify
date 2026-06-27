@@ -33,7 +33,9 @@ from app.core import config
 _OUT_W = 720
 _OUT_H = 1280
 _BORDER_W = 3          # 자막 외곽선 두께(px) - 가독성
-_MARGIN = 120         # 자막을 화면 가장자리에서 띄우는 여백(px)
+_MARGIN = 120         # 자막을 화면 위/아래 가장자리에서 띄우는 여백(px)
+_SIDE_MARGIN = 48     # 자막 좌우 안전 여백(px) - 이 폭 안으로 줄바꿈해 프레임 밖 잘림 방지
+_LINE_SPACING = 12    # 자동 줄바꿈된 줄 사이 간격(px)
 
 # ffmpeg stderr 중 예외에 실어 보낼 최대 길이
 _STDERR_TAIL = 800
@@ -64,18 +66,75 @@ def build_letterbox_filter(bg_color: str) -> str:
     )
 
 
+def _char_display_width(ch: str, font_size_px: int) -> float:
+    """
+    글자 1개의 대략적 렌더 폭(px) 추정.
+    한글/가나/한자/전각은 약 font_size(정사각에 가까움), 그 외(라틴/숫자/공백)는 약 0.55배.
+    실제 폰트 메트릭은 아니지만 줄바꿈 판단용으로 충분하고, 과대추정 쪽이라 잘림에 안전하다.
+    """
+    o = ord(ch)
+    wide = (
+        0xAC00 <= o <= 0xD7A3   # 한글 음절
+        or 0x1100 <= o <= 0x11FF  # 한글 자모
+        or 0x3040 <= o <= 0x30FF  # 가나
+        or 0x3000 <= o <= 0x9FFF  # CJK 기호/한자
+        or 0xFF00 <= o <= 0xFFEF  # 전각
+    )
+    return font_size_px * (1.0 if wide else 0.55)
+
+
+def _wrap_title_to_lines(title: str, font_size_px: int, usable_px: float) -> list[str]:
+    """
+    제목을 usable_px 폭에 맞춰 자동 줄바꿈한다.
+    - 공백이 있으면 단어 경계에서 끊는 것을 우선한다.
+    - 한 단어(또는 공백 없는 한글)가 한 줄보다 길면 글자 단위로 강제 분할한다.
+    각 줄의 추정 폭은 usable_px 이하라, 가운데 정렬해도 프레임 밖으로 나가지 않는다.
+    """
+    def width_of(s: str) -> float:
+        return sum(_char_display_width(c, font_size_px) for c in s)
+
+    out: list[str] = []
+    for para in title.split("\n"):
+        cur = ""
+        cur_w = 0.0
+        for ch in para:
+            cw = _char_display_width(ch, font_size_px)
+            if cur and cur_w + cw > usable_px:
+                br = cur.rfind(" ")
+                if br > 0:                 # 줄 안에 공백이 있으면 마지막 공백에서 끊고 나머지는 다음 줄로
+                    out.append(cur[:br])
+                    cur = cur[br + 1:]
+                else:                      # 공백 없는 긴 텍스트(한글 등) -> 글자 단위 강제 분할
+                    out.append(cur)
+                    cur = ""
+                cur_w = width_of(cur)
+            cur += ch
+            cur_w += cw
+        out.append(cur)
+
+    lines = [ln.strip() for ln in out]
+    return lines if any(lines) else [title.strip()]
+
+
 def _build_drawtext_filter(
     title: str,
     text_color: str,
     title_position: str,
     font_size_px: int,
 ) -> str:
-    """한글 제목 자막(drawtext) 필터 문자열. title 이 비면 ""(자막 생략)."""
+    """한글 제목 자막(drawtext) 필터 문자열. title 이 비면 ""(자막 생략).
+
+    긴 제목은 프레임 좌우 안전폭(_OUT_W - 2*_SIDE_MARGIN) 안으로 자동 줄바꿈해
+    여러 줄로 그린다. 줄바꿈 후 각 줄 폭이 안전폭 이하이므로 x=(w-text_w)/2 도 음수가 되지 않는다.
+    """
     if not title:
         return ""
 
     font_path = config.KOREAN_FONT_EXTRABOLD
-    safe_title = escape_drawtext_text(title)
+    usable_px = _OUT_W - 2 * _SIDE_MARGIN
+    wrapped = "\n".join(_wrap_title_to_lines(title, font_size_px, usable_px))
+    # 줄바꿈(개행) 문자는 escape 대상이 아니며 drawtext 가 그대로 줄바꿈으로 렌더한다.
+    safe_title = escape_drawtext_text(wrapped)
     # 글씨색에 따라 외곽선은 반대색으로 (흰 글씨->검은 외곽선 / 검은 글씨->흰 외곽선)
     border_color = "black" if text_color == "white" else "white"
     # 위치: bottom = 아래에서 _MARGIN 위 / top = 위에서 _MARGIN 아래
@@ -85,6 +144,7 @@ def _build_drawtext_filter(
         f"drawtext=fontfile='{font_path}':text='{safe_title}':"
         f"fontsize={font_size_px}:fontcolor={text_color}:"
         f"borderw={_BORDER_W}:bordercolor={border_color}:"
+        f"line_spacing={_LINE_SPACING}:"
         f"x=(w-text_w)/2:y={y_expr}"
     )
 

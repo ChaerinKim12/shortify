@@ -5,14 +5,10 @@ import PrimaryButton from '../components/PrimaryButton'
 import { I } from '../components/Icon'
 import { useShortify } from '../context/ShortifyContext'
 import { CATEGORIES } from '../data/content'
-import { uploadVideo } from '../api/client'
-
-const CLIP_COUNT = 5 // AI가 최대 몇 개 추출할지 (명세서 clip_count)
 
 export default function Options() {
   const navigate = useNavigate()
   const { state, update } = useShortify()
-  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
   const toggleCategory = (key) => {
@@ -23,7 +19,7 @@ export default function Options() {
     if (error) setError('')
   }
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     // 입력 검증
     if (state.cats.length === 0) {
       setError('카테고리를 하나 이상 선택해주세요.')
@@ -37,33 +33,18 @@ export default function Options() {
       setError('유튜브 URL을 먼저 입력해주세요.')
       return
     }
-
-    setSubmitting(true)
     setError('')
-    try {
-      // 명세서: category 는 단수 → 현재는 첫 번째 선택 카테고리를 보냄 (팀 확정 필요)
-      const category = CATEGORIES.find((c) => c.key === state.cats[0])?.apiKey
-
-      const data = await uploadVideo({
-        file: state.inputMode === 'file' ? state.file : null,
-        youtubeUrl: state.inputMode === 'url' ? state.url.trim() : null,
-        clipCount: CLIP_COUNT,
-        category,
-        userPrompt: state.extra,
-      })
-
-      // 이후로는 task_id 만 들고 다닌다
-      update({ taskId: data.task_id })
-      navigate('/analyzing')
-    } catch (e) {
-      setError(e.message || '업로드에 실패했어요. 잠시 후 다시 시도해주세요.')
-      setSubmitting(false)
-    }
+    // 업로드는 분석 화면(Analyzing)에서 진행한다(진행률 표시). 여기선 즉시 전환만.
+    navigate('/analyzing')
   }
 
   return (
     <div className="animate-fadein min-h-screen">
-      <FlowHeader step={1} onCancel={() => navigate('/')} cancelLabel="← 영상 다시 선택하기" />
+      <FlowHeader
+        step={1}
+        onCancel={() => { update({ url: '', file: null, fileName: '', fileSize: '', cats: [], extra: '' }); navigate('/') }}
+        cancelLabel="영상 다시 선택하기"
+      />
 
       <main className="max-w-3xl mx-auto px-5 py-16">
         {/* 업로드된 입력 칩 */}
@@ -118,10 +99,10 @@ export default function Options() {
         {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
 
         <div className="mt-6">
-          <PrimaryButton onClick={handleSubmit} disabled={submitting || state.cats.length === 0}>
-            {submitting ? '업로드 중...' : 'AI 분석 시작하기'}
+          <PrimaryButton onClick={handleSubmit} disabled={state.cats.length === 0}>
+            AI 분석 시작하기
           </PrimaryButton>
-          <p className="text-center text-xs text-gray-400 mt-3">AI가 최대 {CLIP_COUNT}개 클립을 자동 추출합니다.</p>
+          <p className="text-center text-xs text-gray-400 mt-3">추가 요청사항은 추천에 참고로 반영되며, 최종 클립 개수는 선택한 카테고리와 영상 길이에 따라 달라질 수 있습니다.</p>
         </div>
       </main>
     </div>

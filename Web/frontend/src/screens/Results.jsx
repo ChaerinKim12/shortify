@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import FlowHeader from '../components/FlowHeader'
 import { I } from '../components/Icon'
 import { useShortify } from '../context/ShortifyContext'
+import { getResult, withApiBase } from '../api/client'
 import { CATEGORIES, CLIP_GRADIENTS } from '../data/content'
 import { msToClock } from '../utils/time'
 
@@ -10,6 +12,44 @@ const MAX_SELECT = 5
 export default function Results() {
   const navigate = useNavigate()
   const { state, update } = useShortify()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  // 편집 화면에서 "클립 다시 선택하기"로 돌아오는 등 클립이 컨텍스트에 없을 때,
+  // taskId 로 기존 분석 결과(클립)를 다시 불러온다. (재분석을 트리거하지 않음)
+  // taskId 조차 없으면 보여줄 게 없으니 옵션 단계로 보낸다.
+  useEffect(() => {
+    if ((state.clips || []).length > 0) return // 이미 있으면 그대로 사용
+    if (!state.taskId) {
+      navigate('/options')
+      return
+    }
+
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    getResult(state.taskId)
+      .then((result) => {
+        if (cancelled) return
+        update({
+          clips: result.clips || [],
+          videoDurationMs: result.video_duration_ms || 0,
+        })
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setError(e.message || '결과를 불러오지 못했어요.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+    // taskId 기준으로만 한 번 로드 (clips 채워지면 위 early-return 으로 재호출 안 함)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.taskId])
 
   const toggleClip = (rank) => {
     if (state.selected.includes(rank)) {
@@ -27,7 +67,7 @@ export default function Results() {
 
   return (
     <div className="animate-fadein min-h-screen pb-24">
-      <FlowHeader step={2} onCancel={() => navigate('/options')} />
+      <FlowHeader step={2} onCancel={() => navigate('/options')} cancelLabel="옵션 설정으로" />
 
       <main className="max-w-6xl mx-auto px-5 py-12">
         <h1 className="text-3xl font-extrabold text-gray-900">AI가 추천한 클립이에요</h1>
@@ -35,7 +75,28 @@ export default function Results() {
           원하는 클립을 선택해 주세요 · <span className="text-brand-600 font-semibold">{count}개 선택됨</span> · 최대 5개
         </p>
 
-        {clips.length === 0 ? (
+        {loading ? (
+          <div className="mt-16 text-center text-gray-400">
+            <div className="mx-auto w-12 h-12 mb-3">
+              <svg className="animate-spin text-brand-600" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.2" />
+                <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+              </svg>
+            </div>
+            <p className="font-medium text-gray-500">추천 클립을 불러오는 중이에요…</p>
+          </div>
+        ) : error ? (
+          <div className="mt-16 text-center text-gray-400">
+            <div className="mx-auto w-12 h-12 text-gray-300 mb-3">{I.info}</div>
+            <p className="font-medium text-gray-500">{error}</p>
+            <button
+              onClick={() => navigate('/options')}
+              className="mt-6 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold px-6 py-3 transition"
+            >
+              옵션 다시 설정하기
+            </button>
+          </div>
+        ) : clips.length === 0 ? (
           <div className="mt-16 text-center text-gray-400">
             <div className="mx-auto w-12 h-12 text-gray-300 mb-3">{I.info}</div>
             <p className="font-medium text-gray-500">추천할 만한 구간을 찾지 못했어요.</p>
@@ -63,6 +124,16 @@ export default function Results() {
                   }
                 >
                   <div className={'relative aspect-[16/10] bg-gradient-to-br ' + grad}>
+                    {/* 클립 대표 프레임 썸네일. 없거나 로드 실패하면 뒤의 그라데이션이 그대로 보인다. */}
+                    {clip.thumbnail_url && (
+                      <img
+                        src={withApiBase(clip.thumbnail_url)}
+                        alt={headline}
+                        loading="lazy"
+                        onError={(e) => { e.currentTarget.style.display = 'none' }}
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                    )}
                     <span className="absolute top-3 left-3 text-xs font-bold text-white bg-black/25 rounded-md px-2 py-1">
                       {clip.rank}위
                     </span>

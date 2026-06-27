@@ -1,0 +1,25 @@
+# ===============================================================
+# Shortify 알고리즘 파트 의존성
+# ===============================================================
+# 설치 (서버 지침: pip 직접 금지, uv 의무):
+#   uv pip install -r requirements.txt
+#
+# [주의] ffmpeg / ffprobe 는 pip 패키지가 아니라 시스템 바이너리입니다.
+#   별도 설치 필요 (예: apt-get install ffmpeg).
+#   extract_audio(ffmpeg), 영상 길이 측정(ffprobe), 썸네일/렌더(백엔드)에서 사용.
+# ===============================================================
+
+# --- Claude API / 환경변수 ---
+anthropic            # Claude 호출 (recommend.py)
+python-dotenv        # .env 에서 API 키 로드
+
+# --- 영상 다운로드 / 히트맵 (URL 업로드 케이스) ---
+yt-dlp               # 유튜브 다운로드 + 히트맵(Most Replayed) 추출
+
+# --- 음성 특징 추출 (audio_features.py) ---
+librosa              # 음량/피치/속도 등 오디오 분석
+numpy                # librosa 의존 + 수치 계산
+soundfile            # librosa 의 오디오 파일 로딩 백엔드
+
+# --- 리턴제로 STT API 호출 (stt.py) ---
+requests             # 리턴제로 REST API 통신

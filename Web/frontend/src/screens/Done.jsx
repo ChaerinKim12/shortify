@@ -4,7 +4,7 @@ import FlowHeader from '../components/FlowHeader'
 import { I } from '../components/Icon'
 import { useShortify } from '../context/ShortifyContext'
 import { CLIP_GRADIENTS } from '../data/content'
-import { getRenderStatus, downloadUrl } from '../api/client'
+import { getRenderStatus, downloadUrl, withApiBase } from '../api/client'
 
 const POLL_INTERVAL_MS = 2000
 
@@ -108,7 +108,16 @@ export default function Done() {
             <p className="text-center text-gray-400 mb-10">아래에서 다운로드하세요</p>
 
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex gap-4">
-              <div className={'rounded-xl w-24 aspect-[9/16] bg-gradient-to-br ' + grad + ' relative flex items-end justify-center p-2 shrink-0'}>
+              <div className={'rounded-xl w-24 aspect-[9/16] bg-gradient-to-br ' + grad + ' relative flex items-end justify-center p-2 shrink-0 overflow-hidden'}>
+                {/* 클립 대표 프레임 썸네일. 없거나 로드 실패하면 뒤의 그라데이션이 그대로 보인다. */}
+                {clip?.thumbnail_url && (
+                  <img
+                    src={withApiBase(clip.thumbnail_url)}
+                    alt={title}
+                    onError={(e) => { e.currentTarget.style.display = 'none' }}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                )}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="w-10 h-10 rounded-full bg-white/30 text-white flex items-center justify-center">{I.play}</div>
                 </div>
@@ -122,7 +131,24 @@ export default function Done() {
                     <span className="w-4 h-4">{downloaded ? I.check : I.download}</span>
                     {downloaded ? '다운로드 완료' : '다운로드'}
                   </a>
-                  <button onClick={() => navigate('/edit')} className="w-full rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-600 flex items-center justify-center gap-2 hover:bg-gray-50">
+                  <button
+                    onClick={() => {
+                      // 다른 구간으로 다시 만들기 → 결과 확인(/results)에서 클립/구간을 다시 고른다.
+                      // 이전 선택·제목·스타일·렌더 state 는 초기화하되 clips/taskId 는 유지한다.
+                      // (clips 가 비어 있어도 /results 가 taskId 로 다시 불러온다)
+                      update({
+                        selected: [],
+                        title: '',
+                        titleInput: '',
+                        editStart: null,
+                        editEnd: null,
+                        style: { bg: 'black', text: 'white', pos: 'bottom', size: 'md' },
+                        renderId: null,
+                      })
+                      navigate('/results')
+                    }}
+                    className="w-full rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-600 flex items-center justify-center gap-2 hover:bg-gray-50"
+                  >
                     <span className="w-4 h-4">{I.refresh}</span> 다른 구간으로 다시 만들기
                   </button>
                 </div>

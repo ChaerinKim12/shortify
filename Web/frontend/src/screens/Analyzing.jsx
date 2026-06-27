@@ -4,10 +4,10 @@ import FlowHeader from '../components/FlowHeader'
 import { I } from '../components/Icon'
 import { useShortify } from '../context/ShortifyContext'
 import { CATEGORIES, ANALYZE_PHASES } from '../data/content'
-import { getStatus, getResult } from '../api/client'
+import { getStatus, getResult, uploadVideo } from '../api/client'
 
 // 명세서는 10초(10000) 권장. 개발 중엔 빠르게 확인하려고 2초로 둠. 팀 합의대로 조정.
-const POLL_INTERVAL_MS = 2000
+const POLL_INTERVAL_MS = 2500
 
 export default function Analyzing() {
   const navigate = useNavigate()
@@ -16,16 +16,26 @@ export default function Analyzing() {
   const [statusText, setStatusText] = useState('pending')
   const [done, setDone] = useState(false)
   const [error, setError] = useState('')
+  const [phase, setPhase] = useState(state.taskId ? 'polling' : 'uploading') // 'uploading' | 'polling'
+  const [uploadPct, setUploadPct] = useState(0)
+  // 브라우저 알림(Web Notification). 이미 허용돼 있으면 켜진 것으로 본다.
+  const [notifyOn, setNotifyOn] = useState(
+    typeof Notification !== 'undefined' && Notification.permission === 'granted',
+  )
   const cancelledRef = useRef(false)
+  const uploadStartedRef = useRef(false) // StrictMode 이중 마운트 시 업로드 1회만 보장
+  const uploadXhrRef = useRef(null)      // 진행 중 업로드 XHR (cleanup 에서 abort)
+  const abortTimerRef = useRef(null)     // StrictMode remount 와 실제 unmount 구분용 지연 abort
 
   useEffect(() => {
-    // task_id 없이 직접 들어온 경우 옵션으로 되돌림
-    if (!state.taskId) {
+    // taskId 도 없고 업로드할 입력(file/url)도 없으면 옵션으로 되돌림
+    if (!state.taskId && !state.file && !state.url) {
       navigate('/options')
       return
     }
 
     cancelledRef.current = false
+    clearTimeout(abortTimerRef.current) // StrictMode remount: 직전 cleanup 이 예약한 abort 취소
     let timer
 
     const poll = async () => {
@@ -62,12 +72,79 @@ export default function Analyzing() {
       }
     }
 
-    poll()
+    const doUpload = async () => {
+      try {
+        setPhase('uploading')
+        setUploadPct(0)
+        // 선택된 카테고리 key → 백엔드 코드값(apiKey) 리스트로 변환 (1~4개)
+        const categories = state.cats
+          .map((k) => CATEGORIES.find((c) => c.key === k)?.apiKey)
+          .filter(Boolean)
+        const data = await uploadVideo({
+          file: state.inputMode === 'file' ? state.file : null,
+          youtubeUrl: state.inputMode === 'url' ? state.url.trim() : null,
+          categories,
+          userPrompt: state.extra,
+          onProgress: (pct) => { if (!cancelledRef.current) setUploadPct(pct) },
+          onInit: (xhr) => { uploadXhrRef.current = xhr },
+        })
+        uploadXhrRef.current = null
+        if (cancelledRef.current) return
+        update({ taskId: data.task_id }) // taskId 가 채워지면 effect 재실행 → 폴링 시작
+      } catch (e) {
+        uploadXhrRef.current = null
+        if (cancelledRef.current) return // 언마운트/abort 로 인한 취소면 조용히 무시
+        setError(e.message || '업로드에 실패했어요. 다시 시도해주세요.')
+      }
+    }
+
+    if (state.taskId) {
+      setPhase('polling')
+      poll()
+    } else if (!uploadStartedRef.current) {
+      uploadStartedRef.current = true
+      doUpload()
+    }
+
     return () => {
       cancelledRef.current = true
       clearTimeout(timer)
+      // 진행 중 업로드 abort. 단 StrictMode 의 mount→cleanup→remount 동기 사이클에서는
+      // 곧바로 remount(effect 재실행) 되어 위에서 이 타이머를 취소하므로 실제로 abort 되지 않는다.
+      // 진짜 unmount 면 remount 가 없어 타이머가 살아남아 abort 된다.
+      const xhr = uploadXhrRef.current
+      if (xhr) {
+        abortTimerRef.current = setTimeout(() => xhr.abort(), 0)
+      }
     }
   }, [state.taskId, navigate, update])
+
+  // "알림받기" 클릭 → 브라우저 알림 권한 요청. 미지원/거부 브라우저는 조용히 무시.
+  const handleEnableNotify = async () => {
+    if (typeof Notification === 'undefined') return        // 미지원 브라우저
+    if (Notification.permission === 'granted') { setNotifyOn(true); return }
+    if (Notification.permission === 'denied') return       // 거부 상태면 재요청 불가
+    try {
+      const perm = await Notification.requestPermission()
+      setNotifyOn(perm === 'granted')
+    } catch {
+      // 일부 구형 브라우저의 콜백형 API 등 예외 — 조용히 무시
+    }
+  }
+
+  // 분석 완료 시(done) 권한이 허용돼 있으면 브라우저 알림 발송.
+  useEffect(() => {
+    if (!done) return
+    if (typeof Notification === 'undefined') return
+    if (Notification.permission !== 'granted') return
+    try {
+      new Notification('분석 완료!', {
+        body: '쇼츠 추천 구간이 준비됐어요. 결과를 확인해 보세요.',
+      })
+    } catch {
+      // 발송 실패(권한 변동/모바일 제약 등) — 조용히 무시
+    }
+  }, [done])
 
   const catLabels = state.cats.length
     ? CATEGORIES.filter((c) => state.cats.includes(c.key)).map((c) => c.label).join(', ')
@@ -76,11 +153,13 @@ export default function Analyzing() {
   // 진행 단계 계산: progress 가 있으면 4단계로 매핑, 없으면 status 기준
   const activePhase = done
     ? ANALYZE_PHASES.length
-    : progress != null
-      ? Math.min(ANALYZE_PHASES.length - 1, Math.floor((progress / 100) * ANALYZE_PHASES.length))
-      : statusText === 'pending'
-        ? 0
-        : 1
+    : phase === 'uploading'
+      ? 0 // 업로드는 분석 1단계 이전 단계
+      : progress != null
+        ? Math.min(ANALYZE_PHASES.length - 1, Math.floor((progress / 100) * ANALYZE_PHASES.length))
+        : statusText === 'pending'
+          ? 0
+          : 1
 
   return (
     <div className="animate-fadein min-h-screen">
@@ -130,11 +209,20 @@ export default function Analyzing() {
                   <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
                 </svg>
               </div>
-              <h2 className="text-2xl font-extrabold text-gray-900">AI 구간 분석 중...</h2>
-              <p className="text-gray-400 mt-1">
-                {catLabels && `카테고리: ${catLabels} · `}최대 {state.clips.length || 5}개 클립 추출
-                {progress != null && ` · ${progress}%`}
-              </p>
+              {phase === 'uploading' ? (
+                <>
+                  <h2 className="text-2xl font-extrabold text-gray-900">영상 업로드 중...</h2>
+                  <p className="text-gray-400 mt-1">업로드 중 {uploadPct}% · 완료되면 분석을 시작해요</p>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-2xl font-extrabold text-gray-900">AI 구간 분석 중...</h2>
+                  <p className="text-gray-400 mt-1">
+                    {catLabels && `카테고리: ${catLabels} · `}선택 카테고리에 따라 클립 추출
+                    {progress != null && ` · ${progress}%`}
+                  </p>
+                </>
+              )}
             </>
           )}
 
@@ -178,8 +266,18 @@ export default function Analyzing() {
 
         {!done && !error && (
           <>
-            <button className="w-full mt-4 rounded-2xl border border-gray-200 bg-white py-3.5 text-sm font-medium text-gray-600 flex items-center justify-center gap-2 hover:bg-gray-50">
-              <span className="w-4 h-4">{I.bell}</span> 완료되면 알림 받기
+            <button
+              onClick={handleEnableNotify}
+              disabled={notifyOn}
+              className={
+                'w-full mt-4 rounded-2xl border py-3.5 text-sm font-medium flex items-center justify-center gap-2 transition ' +
+                (notifyOn
+                  ? 'border-brand-200 bg-brand-50 text-brand-700 cursor-default'
+                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50')
+              }
+            >
+              <span className="w-4 h-4">{notifyOn ? I.check : I.bell}</span>
+              {notifyOn ? '완료되면 알림 받기 (켜짐)' : '완료되면 알림 받기'}
             </button>
             <div className="mt-3 flex items-start gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-xs text-gray-500">
               <span className="w-4 h-4 mt-0.5 shrink-0">{I.info}</span>
