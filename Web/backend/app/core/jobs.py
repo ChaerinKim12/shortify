@@ -66,10 +66,15 @@ def init_db() -> None:
                     task_id     TEXT PRIMARY KEY,
                     status      TEXT NOT NULL,
                     video_path  TEXT,
-                    result_json TEXT
+                    result_json TEXT,
+                    progress    INTEGER
                 )
                 """
             )
+            # 이미 progress 없이 만들어진 DB 호환: progress 컬럼이 없으면 추가한다.
+            task_cols = {r["name"] for r in conn.execute("PRAGMA table_info(tasks)")}
+            if "progress" not in task_cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN progress INTEGER")
             # 백엔드 B 용 렌더 작업 테이블.
             #   error 컬럼은 실패 메시지 보관용 (tasks 와 달리 result_json 이 없어 전용 컬럼을 둠).
             conn.execute(
@@ -91,8 +96,8 @@ def init_db() -> None:
 
 def create(task_id: str, **fields) -> Optional[dict]:
     """
-    새 작업을 등록한다 (기본 status=pending).
-    tasks 4컬럼에 없는 kwargs(source_type/clip_count/category/progress 등)는 무시한다.
+    새 작업을 등록한다 (기본 status=pending, progress=0).
+    tasks 컬럼에 없는 kwargs(source_type/clip_count/category 등)는 무시한다.
     """
     status = fields.get("status", "pending")
     video_path = fields.get("video_path")
@@ -100,23 +105,24 @@ def create(task_id: str, **fields) -> Optional[dict]:
     result_json = (
         json.dumps(result, ensure_ascii=False) if result is not None else None
     )
+    progress = fields.get("progress", 0)
 
     with _lock:
         with _connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO tasks (task_id, status, video_path, result_json) "
-                "VALUES (?, ?, ?, ?)",
-                (task_id, status, video_path, result_json),
+                "INSERT OR REPLACE INTO tasks (task_id, status, video_path, result_json, progress) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (task_id, status, video_path, result_json, progress),
             )
     return get(task_id)
 
 
 def update(task_id: str, **fields) -> None:
     """
-    작업 필드를 갱신한다. 4컬럼으로 매핑:
-      status -> status / video_path -> video_path
+    작업 필드를 갱신한다. 컬럼으로 매핑:
+      status -> status / video_path -> video_path / progress -> progress
       result(dict) -> result_json / error(str) -> result_json={"error": ...}
-      progress 등 컬럼 없는 값은 무시.
+      그 외 컬럼 없는 값은 무시.
     """
     sets = []
     params: list = []
@@ -127,6 +133,9 @@ def update(task_id: str, **fields) -> None:
     if "video_path" in fields:
         sets.append("video_path = ?")
         params.append(fields["video_path"])
+    if "progress" in fields:
+        sets.append("progress = ?")
+        params.append(fields["progress"])
     if "result" in fields:
         sets.append("result_json = ?")
         params.append(json.dumps(fields["result"], ensure_ascii=False))
@@ -155,7 +164,7 @@ def get(task_id: str) -> Optional[dict]:
     """
     with _connect() as conn:
         row = conn.execute(
-            "SELECT task_id, status, video_path, result_json FROM tasks WHERE task_id = ?",
+            "SELECT task_id, status, video_path, result_json, progress FROM tasks WHERE task_id = ?",
             (task_id,),
         ).fetchone()
 
@@ -174,10 +183,19 @@ def get(task_id: str) -> Optional[dict]:
     else:
         result, error = None, None
 
+    # progress: done/failed 는 항상 100. 그 외엔 저장된 값(단계별)을 쓰고,
+    # 값이 없으면(구 DB 행 등) status 기반 기본값으로 폴백한다.
+    if status in ("done", "failed"):
+        progress = 100
+    elif row["progress"] is not None:
+        progress = row["progress"]
+    else:
+        progress = _PROGRESS_BY_STATUS.get(status, 0)
+
     return {
         "task_id": row["task_id"],
         "status": status,
-        "progress": _PROGRESS_BY_STATUS.get(status, 0),
+        "progress": progress,
         "result": result,
         "error": error,
         "video_path": row["video_path"],

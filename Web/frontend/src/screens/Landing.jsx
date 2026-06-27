@@ -28,7 +28,7 @@ export default function Landing() {
       return
     }
     const sizeMB = (file.size / (1024 * 1024)).toFixed(0) + 'MB'
-    update({ file, fileName: file.name, fileSize: sizeMB }) // ← file 추가
+    update({ file, fileName: file.name, fileSize: sizeMB, cats: [], extra: '', selected: [], clips: [], taskId: null })
     setError('')
     navigate('/options')
   }
@@ -47,7 +47,7 @@ const handleUrlSubmit = () => {
     }
     setError('')
     // URL 분석이므로 이전에 고른 로컬 파일 정보는 비우고, 표시용 정보를 URL로 교체
-    update({ file: null, fileName: state.url.trim(), fileSize: 'YouTube' })
+    update({ file: null, fileName: state.url.trim(), fileSize: 'YouTube', cats: [], extra: '', selected: [], clips: [], taskId: null })
     navigate('/options')
   }
 
@@ -149,7 +149,7 @@ const handleUrlSubmit = () => {
             <>
               <div className="mt-4 flex gap-2">
                 <input
-                  value={state.url}
+                  value={state.url ?? ''}
                   onChange={(e) => {
                     update({ url: e.target.value })
                     if (error) setError('')

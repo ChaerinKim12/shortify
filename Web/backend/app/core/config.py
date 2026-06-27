@@ -27,6 +27,10 @@ UPLOAD_DIR = NFS_DIR
 # 원본과 같은 NFS 아래 두어 A/B 가 같은 파일시스템을 공유한다.
 RENDER_DIR = os.getenv("RENDER_DIR", os.path.join(NFS_DIR, "renders"))
 
+# 결과 화면 클립 카드용 대표 프레임(썸네일) 저장 폴더.
+# 클립 1개당 1장: {THUMBNAIL_DIR}/{task_id}_{rank}.jpg
+THUMBNAIL_DIR = os.getenv("THUMBNAIL_DIR", os.path.join(NFS_DIR, "thumbnails"))
+
 # 기본 카테고리 (upload 에서 category 미지정 시)
 DEFAULT_CATEGORY = "empathy"
 
@@ -41,6 +45,7 @@ KOREAN_FONT_EXTRABOLD = os.path.join(FONTS_DIR, "Pretendard-ExtraBold.otf")
 
 
 def ensure_dirs() -> None:
-    """업로드/렌더 저장 폴더를 미리 만든다 (서버 기동 시 1회 호출)."""
+    """업로드/렌더/썸네일 저장 폴더를 미리 만든다 (서버 기동 시 1회 호출)."""
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     os.makedirs(RENDER_DIR, exist_ok=True)
+    os.makedirs(THUMBNAIL_DIR, exist_ok=True)

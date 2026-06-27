@@ -11,7 +11,7 @@ const INITIAL_STATE = {
   fileSize: '',
 
   // 옵션
-  cats: [], // 선택된 카테고리 key 목록 (UI는 다중, API엔 첫 번째만 전송)
+  cats: [], // 선택된 카테고리 key 목록 (다중 선택, API엔 categories 리스트로 전송)
   extra: '', // 추가 요청사항 (user_prompt)
 
   // 분석 (POST /api/upload → GET status → GET result)

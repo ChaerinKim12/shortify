@@ -11,8 +11,9 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-# 허용 카테고리 (API 명세 기준). upload 에서 이 집합으로 검증한다.
-ALLOWED_CATEGORIES = {"empathy", "laughter", "info", "sadness", "twist"}
+# 허용 카테고리 (알고리즘 계약 기준 — Web/algorithm/config.py 의 CATEGORIES 와 일치).
+# upload 에서 이 집합으로 검증한다. (구 sadness/twist 폐기, touching 추가)
+ALLOWED_CATEGORIES = {"empathy", "laughter", "info", "touching"}
 
 
 class UploadResponse(BaseModel):
@@ -31,16 +32,21 @@ class StatusResponse(BaseModel):
 
 class Clip(BaseModel):
     """
-    result 응답의 클립 1개. 명세서 필드만 노출한다.
+    result 응답의 클립 1개. 알고리즘 계약 7필드만 노출한다
+    (Web/algorithm/postprocess.py 의 CONTRACT_FIELDS 와 일치).
     analyze() 가 score/score_reason 등 추가 필드를 줘도(내부 저장엔 남음)
     이 모델로 직렬화되며 응답에서는 자동으로 제외된다.
     """
     rank: int
+    category: list[str]       # 이 구간이 속한 카테고리(들). dedup 으로 여러 개일 수 있음.
     start_ms: int
     end_ms: int
-    duration_sec: float
+    duration_sec: int         # 계약상 정수 (postprocess.validate_clips 가 round 처리)
     reason: str
     titles: list[str]
+    # 클립 대표 프레임 썸네일 URL (/api/thumbnail/{task_id}/{rank}).
+    # worker 가 analyze() 결과에 덧붙인다. 추출 실패 시 None → 프론트가 그라데이션 폴백.
+    thumbnail_url: Optional[str] = None
 
 
 class ResultResponse(BaseModel):

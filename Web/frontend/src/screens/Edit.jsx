@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import FlowHeader from '../components/FlowHeader'
 import StyleField from '../components/StyleField'
@@ -6,9 +6,21 @@ import { I } from '../components/Icon'
 import { useShortify } from '../context/ShortifyContext'
 import { CLIP_GRADIENTS } from '../data/content'
 import { msToClock } from '../utils/time'
-import { startRender } from '../api/client'
+import { startRender, previewUrl, withApiBase } from '../api/client'
+import DualRangeSlider from '../components/DualRangeSlider'
+import {
+  OUT_W,
+  MARGIN,
+  LINE_SPACING,
+  FONT_SIZE_PX,
+  wrapTitleToLines,
+} from '../utils/titleWrap'
 
-const TITLE_SIZE = { sm: 'text-base', md: 'text-xl', lg: 'text-3xl' }
+// 프론트 스타일 size(sm/md/lg) → 백엔드 render font_size(small/medium/large) 매핑
+const FONT_SIZE_MAP = { sm: 'small', md: 'medium', lg: 'large' }
+
+// 미리보기 프레임 폭(px). 실제 렌더 프레임 OUT_W(720px)에 대응시켜 비율을 맞춘다.
+const PREVIEW_W = 256
 
 export default function Edit() {
   const navigate = useNavigate()
@@ -16,9 +28,29 @@ export default function Edit() {
   const [tab, setTab] = useState('trim') // 'trim' | 'style'
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  // 구간 조정값 (ms). 처음엔 추천 구간으로 시작.
+  const [range, setRange] = useState({ start: 0, end: 0 })
+  const videoRef = useRef(null)
 
   // 선택한 첫 번째 클립
   const clip = (state.clips || []).find((c) => c.rank === state.selected[0])
+
+  useEffect(() => {
+    if (clip) setRange({ start: clip.start_ms, end: clip.end_ms })
+  }, [clip])
+
+  // (2) 슬라이더로 시작점(range.start)을 바꾸면 영상 재생 위치도 따라간다.
+  useEffect(() => {
+    const v = videoRef.current
+    if (v) v.currentTime = range.start / 1000
+  }, [range.start])
+
+  // 선택한 클립이 바뀌거나 비어 있으면 제목을 그 클립의 추천 제목으로 세팅한다.
+  // (이전 클립 제목 잔존 방지. 사용자가 이미 정한 제목이 있으면 유지)
+  useEffect(() => {
+    if (clip && !state.title) update({ title: clip.titles?.[0] || '' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clip?.rank])
 
   // 선택 클립이 없으면 결과로 되돌림
   useEffect(() => {
@@ -38,9 +70,14 @@ export default function Edit() {
       const title = state.title?.trim() ? state.title : clip.titles?.[0] || ''
       const data = await startRender({
         taskId: state.taskId,
-        startMs: clip.start_ms, // TODO: 구간 슬라이더 조정값 연동 (지금은 추천 구간 그대로)
-        endMs: clip.end_ms,
+        startMs: range.start,
+        endMs: range.end,
         title,
+        // 제목·스타일 설정값을 렌더에 반영 (배경/글씨색/위치/크기)
+        bgColor: style.bg,
+        textColor: style.text,
+        titlePosition: style.pos,
+        fontSize: FONT_SIZE_MAP[style.size] || 'medium',
       })
       update({ renderId: data.render_id, title })
       navigate('/done')
@@ -52,7 +89,22 @@ export default function Edit() {
 
   return (
     <div className="animate-fadein min-h-screen pb-24 bg-gray-50">
-      <FlowHeader step={3} onCancel={() => navigate('/results')} cancelLabel="← 목록으로" />
+      <FlowHeader
+        step={3}
+        onCancel={() => {
+          // 다른 클립을 다시 고르므로 이전 클립의 제목·스타일·선택/편집 state 를 초기화한다.
+          update({
+            selected: [],
+            title: '',
+            titleInput: '',
+            editStart: null,
+            editEnd: null,
+            style: { bg: 'black', text: 'white', pos: 'bottom', size: 'md' }, // INITIAL_STATE.style 와 동일
+          })
+          navigate('/results')
+        }}
+        cancelLabel="클립 다시 선택하기"
+      />
 
       {/* 탭 */}
       <div className="bg-white border-b border-gray-100">
@@ -82,57 +134,110 @@ export default function Edit() {
           <>
             <p className="text-center text-gray-700 font-medium mb-3">{currentTitle}</p>
             <div className={'relative rounded-2xl aspect-video bg-gradient-to-br ' + grad + ' overflow-hidden'}>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-16 h-16 rounded-full bg-white/30 text-white flex items-center justify-center">{I.play}</div>
-              </div>
-              <div className="absolute bottom-4 left-4 right-4 bg-black/40 rounded-lg px-4 py-2 text-white text-sm font-mono">
-                {msToClock(clip.start_ms)} / {msToClock(clip.end_ms)}
+              {state.taskId ? (
+                <video
+                  ref={videoRef}
+                  src={previewUrl(state.taskId)}
+                  poster={clip.thumbnail_url ? withApiBase(clip.thumbnail_url) : undefined}
+                  controls
+                  preload="metadata"
+                  // (1) 메타데이터 로드되면 AI 추천 구간 시작점으로 점프
+                  onLoadedMetadata={() => {
+                    const v = videoRef.current
+                    if (v) v.currentTime = clip.start_ms / 1000
+                  }}
+                  // (3) 추천 구간 끝(range.end)을 넘으면 시작점으로 되돌려 구간만 미리보기
+                  onTimeUpdate={(e) => {
+                    const v = e.currentTarget
+                    if (v.currentTime >= range.end / 1000) v.currentTime = range.start / 1000
+                  }}
+                  className="absolute inset-0 w-full h-full object-contain bg-black/60"
+                />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  {clip.thumbnail_url && (
+                    <img
+                      src={withApiBase(clip.thumbnail_url)}
+                      alt={currentTitle}
+                      onError={(e) => { e.currentTarget.style.display = 'none' }}
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  )}
+                  <div className="w-16 h-16 rounded-full bg-white/30 text-white flex items-center justify-center">{I.play}</div>
+                </div>
+              )}
+              <div className="absolute top-3 left-3 bg-black/50 rounded-lg px-3 py-1.5 text-white text-xs font-mono pointer-events-none">
+                {msToClock(range.start)} / {msToClock(range.end)}
               </div>
             </div>
 
             <div className="bg-white rounded-2xl border border-gray-100 p-6 mt-6">
-              <p className="text-xs text-gray-400 mb-4">앞뒤 1분 포함 구간 표시</p>
-              <input type="range" min="0" max="100" defaultValue="60" className="rng w-full" />
+              <p className="text-xs text-gray-400 mb-4">앞뒤 1분을 포함해 구간을 조정할 수 있어요</p>
+              <DualRangeSlider
+                min={Math.max(0, clip.start_ms - 60000)}
+                max={clip.end_ms + 60000}
+                start={range.start}
+                end={range.end}
+                onChange={setRange}
+              />
               <div className="flex items-center justify-center gap-3 mt-6 flex-wrap">
                 <div className="rounded-xl bg-gray-100 px-4 py-2 text-sm">
                   <span className="text-gray-400">시작점: </span>
-                  <b className="text-gray-800">{msToClock(clip.start_ms)}</b>
+                  <b className="text-gray-800">{msToClock(range.start)}</b>
                 </div>
                 <span className="text-gray-300">{I.arrow}</span>
                 <div className="rounded-xl bg-gray-100 px-4 py-2 text-sm">
                   <span className="text-gray-400">종료점: </span>
-                  <b className="text-gray-800">{msToClock(clip.end_ms)}</b>
+                  <b className="text-gray-800">{msToClock(range.end)}</b>
                 </div>
                 <div className="rounded-xl bg-brand-50 px-4 py-2 text-sm">
                   <span className="text-brand-500">길이: </span>
-                  <b className="text-brand-700">{clip.duration_sec}초</b>
+                  <b className="text-brand-700">{Math.round((range.end - range.start) / 1000)}초</b>
                 </div>
               </div>
             </div>
           </>
         ) : (
           <div className="grid md:grid-cols-2 gap-10 items-start">
-            {/* 미리보기 */}
+            {/* 미리보기 — 줄바꿈/글자폭/여백을 render.py 와 동일 규칙으로 계산해 WYSIWYG.
+                줄바꿈은 wrapTitleToLines()가 결정하고, 각 줄은 white-space:nowrap 으로
+                고정해 CSS 자동 줄바꿈에 의존하지 않는다. (CSS가 다시 끊으면 어긋남) */}
             <div className="flex flex-col items-center">
-              <div
-                className={
-                  'rounded-3xl aspect-[9/16] w-64 flex justify-center p-5 ' +
-                  (style.bg === 'black' ? 'bg-black' : 'bg-white border border-gray-200') +
-                  ' ' +
-                  (style.pos === 'top' ? 'items-start' : 'items-end')
-                }
-              >
-                <p
-                  className={
-                    'text-center font-extrabold leading-snug ' +
-                    TITLE_SIZE[style.size] +
-                    ' ' +
-                    (style.text === 'white' ? 'text-white' : 'text-black')
-                  }
-                >
-                  {currentTitle}
-                </p>
-              </div>
+              {(() => {
+                const scale = PREVIEW_W / OUT_W                 // 미리보기 폭 / 720
+                const fontPx = FONT_SIZE_PX[style.size] ?? FONT_SIZE_PX.md
+                const lines = wrapTitleToLines(currentTitle, fontPx) // 백엔드와 동일 폭(624) 기준
+                const previewFont = fontPx * scale              // 환산된 글씨 px
+                const lineHeight = (fontPx + LINE_SPACING) * scale
+                const vPad = MARGIN * scale                     // 위/아래 여백(_MARGIN 환산)
+                return (
+                  <div
+                    className={
+                      'rounded-3xl aspect-[9/16] flex flex-col overflow-hidden ' +
+                      (style.bg === 'black' ? 'bg-black' : 'bg-white border border-gray-200') +
+                      ' ' +
+                      (style.pos === 'top' ? 'justify-start' : 'justify-end')
+                    }
+                    style={{ width: PREVIEW_W, paddingTop: vPad, paddingBottom: vPad }}
+                  >
+                    <div className="w-full text-center font-extrabold">
+                      {lines.map((ln, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            whiteSpace: 'nowrap',
+                            fontSize: `${previewFont}px`,
+                            lineHeight: `${lineHeight}px`,
+                            color: style.text === 'white' ? '#fff' : '#000',
+                          }}
+                        >
+                          {ln === '' ? ' ' : ln}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
               <span className="text-xs text-gray-400 mt-2">미리보기</span>
             </div>
 
