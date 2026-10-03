@@ -182,9 +182,12 @@ const handleUrlSubmit = () => {
             <div key={i} className="animate-pop" style={{ animationDelay: `${i * 80}ms` }}>
               {/* 검은 카드 */}
               <div className="rounded-2xl aspect-[9/16] bg-black relative overflow-hidden shadow-xl flex flex-col items-center justify-center">
-                {/* 영상 위 검은 여백: 제목 */}
-                <div className="px-2 mb-4 text-center">
-                  <p className="text-white font-extrabold text-xs sm:text-sm leading-snug">{card.headline}</p>
+                {/* 영상 위 검은 여백: 큰 흰 제목(필요하면 2줄로 줄바꿈) + 작은 부제 */}
+                <div className="px-3 mb-4 text-center w-full">
+                  <p className="text-white font-extrabold text-sm sm:text-base leading-snug break-keep text-balance">
+                    {card.headline}
+                  </p>
+                  {card.sub && <p className="text-white/70 text-[11px] sm:text-xs font-medium mt-1">{card.sub}</p>}
                 </div>
 
                 {/* 가운데 영상 (가로 꽉, 16:9) */}
@@ -198,8 +201,8 @@ const handleUrlSubmit = () => {
                     />
                   )}
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-10 h-10 rounded-full bg-white/25 backdrop-blur flex items-center justify-center">
-                      <div className="w-5 h-5 text-white">{I.play}</div>
+                    <div className="w-7 h-7 rounded-full bg-black/25 backdrop-blur flex items-center justify-center">
+                      <div className="w-3.5 h-3.5 text-white/90">{I.play}</div>
                     </div>
                   </div>
                 </div>

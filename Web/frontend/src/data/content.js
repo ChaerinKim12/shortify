@@ -24,11 +24,11 @@ export const STEPS = [
   { num: 4, icon: 'download', title: '다운로드', desc: '9:16 쇼츠 완성' },
 ]
 
-// 히어로 미리보기 카드. img 파일을 public/samples/ 에 넣으면 사진이 뜨고, 없으면 그라데이션.
+// 히어로 미리보기 카드. img 파일을 public/landing/ 에 넣으면 사진이 뜨고, 없으면 그라데이션.
 export const HERO_CARDS = [
-  { label: '웃음', time: '00:34', rank: '1위 추천', grad: 'from-brand-600 to-fuchsia-500', headline: '안경원에서 소매치기 당한 썰;;', img: '/samples/humor.jpg' },
-  { label: '감동', time: '00:28', rank: '2위 추천', grad: 'from-teal-600 to-emerald-500', headline: '엄마 몰래 준비한 깜짝 선물', img: '/samples/touching.jpg' },
-  { label: '공감', time: '00:41', rank: '3위 추천', grad: 'from-slate-800 to-slate-600', headline: '모두가 겪어봤을 그 순간', img: '/samples/empathy.jpg' },
+  { label: '웃음', time: '00:34', rank: '1위 추천', grad: 'from-brand-600 to-fuchsia-500', headline: '웃참하다 결국 터져버림', sub: 'ㅋㅋㅋ', img: '/landing/humor.webp' },
+  { label: '감동', time: '00:28', rank: '2위 추천', grad: 'from-teal-600 to-emerald-500', headline: '엄마 손잡고 걷던 게 언제였더라', img: '/landing/touching.webp' },
+  { label: '공감', time: '00:41', rank: '3위 추천', grad: 'from-slate-800 to-slate-600', headline: '카페에서 5분만 쉬려다 기절', sub: 'ㅋㅋㅋ', img: '/landing/empathy.webp' },
 ]
 
 // 결과 카드 배경 그라데이션 (순위 순서대로 돌려 씀)
