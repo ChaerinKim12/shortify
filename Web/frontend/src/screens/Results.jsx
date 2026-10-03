@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Check } from 'lucide-react'
 import FlowHeader from '../components/FlowHeader'
 import { I } from '../components/Icon'
 import { useShortify } from '../context/ShortifyContext'
 import { getResult, withApiBase } from '../api/client'
 import { CATEGORIES, CLIP_GRADIENTS } from '../data/content'
 import { msToClock } from '../utils/time'
+import { humanizeReason } from '../utils/reason'
+import ReasonTooltip from '../components/ReasonTooltip'
 
 const MAX_SELECT = 5
 
@@ -60,6 +63,9 @@ export default function Results() {
   }
 
   const count = state.selected.length
+  // 사용자가 입력한 추가 요청(있을 때만 배지 표시). 20자 넘으면 말줄임, 전체는 title(마우스 올리면)
+  const request = (state.extra || '').replace(/\s+/g, ' ').trim()
+  const requestShort = request.length > 20 ? request.slice(0, 20) + '…' : request
   const clips = state.clips || []
 
   // 선택한 카테고리 라벨 (배지용). 명세서가 단수라 첫 번째 기준.
@@ -74,6 +80,15 @@ export default function Results() {
         <p className="text-gray-500 mt-2">
           원하는 클립을 선택해 주세요 · <span className="text-brand-600 font-semibold">{count}개 선택됨</span> · 최대 5개
         </p>
+        {request && (
+          <span
+            title={request}
+            className="inline-flex items-center gap-1 mt-3 max-w-full rounded-full bg-brand-50 text-brand-700 text-xs font-semibold px-3 py-1"
+          >
+            <Check size={12} strokeWidth={3} className="shrink-0" />
+            <span className="truncate">요청 반영: '{requestShort}'</span>
+          </span>
+        )}
 
         {loading ? (
           <div className="mt-16 text-center text-gray-400">
@@ -155,11 +170,14 @@ export default function Results() {
                     </div>
                   </div>
                   <div className="p-4">
-                    <h3 className="font-bold text-gray-900 leading-snug">{headline}</h3>
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="font-bold text-gray-900 leading-snug">{headline}</h3>
+                      <ReasonTooltip reason={clip.reason} display={clip.reason_display} />
+                    </div>
                     <div className="text-sm text-gray-500 mt-2">
                       ⏱ {clip.duration_sec}초 · {msToClock(clip.start_ms)} ~ {msToClock(clip.end_ms)}
                     </div>
-                    <p className="text-xs text-gray-400 mt-2 leading-relaxed line-clamp-2">{clip.reason}</p>
+                    <p className="text-xs text-gray-400 mt-2 leading-relaxed line-clamp-1">{humanizeReason(clip.reason)}</p>
                   </div>
                 </div>
               )

@@ -18,6 +18,7 @@ from typing import Optional
 
 from app.analyze import analyze
 from app.core import config, jobs
+from app.reason_display import attach_reason_display
 from app.render import render_clip
 from app.thumbnail import generate_thumbnail
 
@@ -122,6 +123,9 @@ def run_analysis_task(
         if source_path and os.path.exists(source_path):
             _faststart_inplace(source_path)               # 최적화(실패해도 무방)
             jobs.update(task_id, video_path=source_path)  # preview 가 이 파일을 보게
+
+        # 사용자용 선정 이유(reason_display) 변환. 실패/타임아웃이면 없이 진행(프론트가 reason 으로 폴백).
+        attach_reason_display(result.get("clips", []), user_prompt)
 
         # 클립별 대표 프레임 썸네일 생성 → 각 clip 에 thumbnail_url 추가.
         # (faststart 적용본 기준으로 뽑는다. 실패해도 done 으로 진행)
