@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.core import config, jobs
+from app.subtitles import SUBTITLE_SIZE_PX
 from app.worker import run_render_task
 
 router = APIRouter()
@@ -36,6 +37,12 @@ _MIN_DURATION_MS = 5_000
 _MAX_DURATION_MS = 90_000
 
 
+class SubtitleLine(BaseModel):
+    start_ms: int
+    end_ms: int
+    text: str
+
+
 class RenderRequest(BaseModel):
     """POST /api/render 요청 바디."""
     task_id: str
@@ -46,6 +53,11 @@ class RenderRequest(BaseModel):
     text_color: Literal["white", "black"] = "white"
     title_position: Literal["top", "bottom"] = "bottom"
     font_size: Literal["small", "medium", "large"] = "medium"
+    # 대사 자막 (꺼져 있으면 기존 렌더와 동일). 시간은 원본 영상 기준 ms.
+    subtitles: list[SubtitleLine] = Field(default_factory=list)
+    subtitle_enabled: bool = False
+    subtitle_position: Literal["letterbox", "overlay"] = "letterbox"
+    subtitle_size: Literal["small", "medium", "large"] = "medium"
 
 
 class RenderResponse(BaseModel):
@@ -114,6 +126,13 @@ async def render(
         text_color=req.text_color,
         title_position=req.title_position,
         font_size_px=_FONT_SIZE_PX[req.font_size],
+        subtitles=(
+            [s.model_dump() for s in req.subtitles]
+            if req.subtitle_enabled and req.subtitles
+            else None
+        ),
+        subtitle_position=req.subtitle_position,
+        subtitle_size_px=SUBTITLE_SIZE_PX[req.subtitle_size],
     )
 
     return RenderResponse(render_id=render_id, status="pending")

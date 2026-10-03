@@ -146,7 +146,10 @@ export function getResult(taskId) {
 // 스타일 옵션(bgColor/textColor/titlePosition/fontSize)도 함께 보낸다.
 // 백엔드 RenderRequest 의 bg_color/text_color/title_position/font_size 와 1:1 매핑.
 // (값이 undefined 면 JSON 에서 빠져 백엔드 기본값이 적용된다)
-export function startRender({ taskId, startMs, endMs, title, bgColor, textColor, titlePosition, fontSize }) {
+export function startRender({
+  taskId, startMs, endMs, title, bgColor, textColor, titlePosition, fontSize,
+  subtitles, subtitleEnabled, subtitlePosition, subtitleSize,
+}) {
   if (USE_MOCK) return mock.upload()
   return requestJson('/api/render', {
     method: 'POST',
@@ -160,8 +163,17 @@ export function startRender({ taskId, startMs, endMs, title, bgColor, textColor,
       text_color: textColor,
       title_position: titlePosition,
       font_size: fontSize,
+      subtitles,
+      subtitle_enabled: subtitleEnabled,
+      subtitle_position: subtitlePosition,
+      subtitle_size: subtitleSize,
     }),
   })
+}
+
+// (4-1) 구간과 겹치는 자막 줄 → [{ start_ms, end_ms, text }] (원본 영상 기준 시간)
+export function getSubtitles(taskId, startMs, endMs, lines = 1) {
+  return requestJson(`/api/subtitles/${taskId}?start_ms=${startMs}&end_ms=${endMs}&lines=${lines}`)
 }
 
 // (5) 만들기 상태 확인 → { status }
