@@ -43,6 +43,12 @@ FONTS_DIR = os.path.join(BASE_DIR, "app", "fonts")
 KOREAN_FONT_BOLD = os.path.join(FONTS_DIR, "Pretendard-Bold.otf")
 KOREAN_FONT_EXTRABOLD = os.path.join(FONTS_DIR, "Pretendard-ExtraBold.otf")
 
+# 자막용 STT 결과({task_id}_merged.json) 폴더. 알고리즘 results 폴더를 그대로 쓴다.
+STT_RESULTS_DIR = os.getenv(
+    "STT_RESULTS_DIR",
+    os.path.join(os.path.dirname(BASE_DIR), "algorithm", "results"),
+)
+
 
 def ensure_dirs() -> None:
     """업로드/렌더/썸네일 저장 폴더를 미리 만든다 (서버 기동 시 1회 호출)."""

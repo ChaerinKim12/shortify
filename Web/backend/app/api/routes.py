@@ -41,6 +41,7 @@ from app.schemas import (
     StatusResponse,
     UploadResponse,
 )
+from app.subtitles import load_subtitles
 from app.worker import run_analysis_task
 
 router = APIRouter()
@@ -233,3 +234,23 @@ async def thumbnail(task_id: str, rank: int) -> FileResponse:
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+@router.get("/subtitles/{task_id}")
+async def subtitles(
+    task_id: str, start_ms: int = 0, end_ms: int = 2**31 - 1, lines: int = 1
+) -> list[dict]:
+    """
+    [start_ms, end_ms] 구간과 겹치는 발화를 자막 줄로 반환한다.
+    긴 발화는 줄당 최대 18자로 쪼개 lines(1|2)줄 단위 자막으로 만들고,
+    시간은 발화 구간 안에서 글자 수 비율로 배분한다(최소 0.7초).
+    반환: [{start_ms, end_ms, text}] (원본 영상 기준 시간)
+    """
+    if jobs.get(task_id) is None:
+        raise HTTPException(status_code=404, detail="존재하지 않는 task_id 입니다.")
+    if start_ms >= end_ms:
+        raise HTTPException(status_code=400, detail="start_ms 는 end_ms 보다 작아야 합니다.")
+    subs = load_subtitles(task_id, start_ms, end_ms, lines)
+    if subs is None:
+        raise HTTPException(status_code=404, detail="이 작업의 자막(STT) 데이터가 없습니다.")
+    return subs

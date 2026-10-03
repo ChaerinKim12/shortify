@@ -14,6 +14,7 @@ analyze() 가 더미든 실제 알고리즘이든 이 래퍼는 그대로 동작
 import logging
 import os
 import subprocess
+from typing import Optional
 
 from app.analyze import analyze
 from app.core import config, jobs
@@ -143,6 +144,9 @@ def run_render_task(
     text_color: str,
     title_position: str,
     font_size_px: int,
+    subtitles: Optional[list[dict]] = None,
+    subtitle_position: str = "letterbox",
+    subtitle_size_px: int = 36,
 ) -> None:
     """
     render_clip() 을 실행하고 결과/에러를 renders 에 기록한다.
@@ -162,6 +166,9 @@ def run_render_task(
             text_color=text_color,
             title_position=title_position,
             font_size_px=font_size_px,
+            subtitles=subtitles,
+            subtitle_position=subtitle_position,
+            subtitle_size_px=subtitle_size_px,
         )
         jobs.update_render(render_id, status="done", output_path=output_path)
     except Exception as e:

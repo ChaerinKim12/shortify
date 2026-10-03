@@ -26,7 +26,10 @@
 
 import os
 import subprocess
+import tempfile
+from typing import Optional
 
+from app import subtitles as subs_mod
 from app.core import config
 
 # 출력 캔버스(9:16) / 자막 스타일 상수
@@ -130,7 +133,8 @@ def _build_drawtext_filter(
     if not title:
         return ""
 
-    font_path = config.KOREAN_FONT_EXTRABOLD
+    # Windows 경로(C:\...)의 역슬래시/콜론은 필터 파서가 먹으므로 escape (Linux 경로는 변화 없음)
+    font_path = subs_mod.escape_filter_path(config.KOREAN_FONT_EXTRABOLD)
     usable_px = _OUT_W - 2 * _SIDE_MARGIN
     wrapped = "\n".join(_wrap_title_to_lines(title, font_size_px, usable_px))
     # 줄바꿈(개행) 문자는 escape 대상이 아니며 drawtext 가 그대로 줄바꿈으로 렌더한다.
@@ -149,6 +153,15 @@ def _build_drawtext_filter(
     )
 
 
+def _title_top_y(title: str, title_position: str, font_size_px: int) -> Optional[float]:
+    """하단 제목이 있으면 제목 윗선 y(px) 를 추정해 돌려준다 (자막이 제목과 겹치지 않게 하는 용도)."""
+    if not title or title_position != "bottom":
+        return None
+    n = len(_wrap_title_to_lines(title, font_size_px, _OUT_W - 2 * _SIDE_MARGIN))
+    text_h = n * font_size_px + (n - 1) * _LINE_SPACING
+    return _OUT_H - _MARGIN - text_h
+
+
 def render_clip(
     input_path: str,
     output_path: str,
@@ -159,6 +172,9 @@ def render_clip(
     text_color: str = "white",
     title_position: str = "bottom",
     font_size_px: int = 48,
+    subtitles: Optional[list[dict]] = None,
+    subtitle_position: str = "letterbox",
+    subtitle_size_px: int = 36,
 ) -> str:
     """
     원본 영상의 [start_ms, end_ms) 구간을 9:16 쇼츠로 합성해 output_path 에 저장한다.
@@ -169,8 +185,25 @@ def render_clip(
     start_sec = start_ms / 1000.0
     duration_sec = (end_ms - start_ms) / 1000.0
 
-    # 레터박스 + (선택) 자막 을 콤마로 이어 vf 구성
+    # 레터박스 -> (선택) 대사 자막(ass) -> (선택) 제목(drawtext) 순으로 콤마로 이어 vf 구성
     vf = build_letterbox_filter(bg_color)
+
+    # 대사 자막: 클립 기준 상대시간 .ass 를 임시 폴더에 만들어 ass 필터로 입힌다.
+    # 자막이 없으면(꺼짐/빈 목록) vf 는 기존과 완전히 동일하다.
+    tmp_dir = None
+    ass_text = None
+    if subtitles:
+        ass_text = subs_mod.build_ass(
+            subtitles, start_ms, end_ms, subtitle_position, subtitle_size_px,
+            title_top_y=_title_top_y(title, title_position, font_size_px),
+        )
+    if ass_text:
+        tmp_dir = tempfile.TemporaryDirectory(prefix="shortify_ass_")
+        ass_path = os.path.join(tmp_dir.name, "subs.ass")
+        with open(ass_path, "w", encoding="utf-8") as f:
+            f.write(ass_text)
+        vf = f"{vf},{subs_mod.build_ass_filter(ass_path)}"
+
     drawtext = _build_drawtext_filter(title, text_color, title_position, font_size_px)
     if drawtext:
         vf = f"{vf},{drawtext}"
@@ -185,7 +218,13 @@ def render_clip(
         output_path,
     ]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+        )
+    finally:
+        if tmp_dir is not None:
+            tmp_dir.cleanup()
     if proc.returncode != 0:
         tail = (proc.stderr or "").strip()[-_STDERR_TAIL:]
         raise RuntimeError(f"ffmpeg 렌더 실패 (code={proc.returncode}): {tail}")

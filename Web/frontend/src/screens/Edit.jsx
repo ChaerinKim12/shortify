@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import FlowHeader from '../components/FlowHeader'
 import StyleField from '../components/StyleField'
@@ -6,8 +6,10 @@ import { I } from '../components/Icon'
 import { useShortify } from '../context/ShortifyContext'
 import { CLIP_GRADIENTS } from '../data/content'
 import { msToClock } from '../utils/time'
-import { startRender, previewUrl, withApiBase } from '../api/client'
+import { startRender, getSubtitles, previewUrl, withApiBase } from '../api/client'
 import DualRangeSlider from '../components/DualRangeSlider'
+import SubtitleTab from '../components/SubtitleTab'
+import { SUBTITLE_SIZE_API } from '../utils/subtitle'
 import {
   OUT_W,
   MARGIN,
@@ -25,12 +27,24 @@ const PREVIEW_W = 256
 export default function Edit() {
   const navigate = useNavigate()
   const { state, update, updateStyle } = useShortify()
-  const [tab, setTab] = useState('trim') // 'trim' | 'style'
+  const [tab, setTab] = useState('trim') // 'trim' | 'subtitle' | 'style'
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   // 구간 조정값 (ms). 처음엔 추천 구간으로 시작.
   const [range, setRange] = useState({ start: 0, end: 0 })
   const videoRef = useRef(null)
+
+  // 자막: 슬라이더 최대 범위(앞뒤 1분 포함)를 한 번 받아 두고, 구간이 바뀌면 그 안에서 다시 필터한다.
+  // 사용자가 고친 텍스트/삭제는 구간을 움직여도 유지되도록 key(시작-끝) 기준으로 따로 보관한다.
+  const [allSubs, setAllSubs] = useState([])
+  const [subsLoading, setSubsLoading] = useState(false)
+  const [subsError, setSubsError] = useState('')
+  const [subEdits, setSubEdits] = useState({})
+  const [subDeleted, setSubDeleted] = useState({})
+  const [subEnabled, setSubEnabled] = useState(true)
+  const [subPos, setSubPos] = useState('letterbox')
+  const [subSize, setSubSize] = useState('md')
+  const [subLines, setSubLines] = useState('1') // 자막 1개당 줄 수 '1' | '2'
 
   // 선택한 첫 번째 클립
   const clip = (state.clips || []).find((c) => c.rank === state.selected[0])
@@ -38,6 +52,37 @@ export default function Edit() {
   useEffect(() => {
     if (clip) setRange({ start: clip.start_ms, end: clip.end_ms })
   }, [clip])
+
+  useEffect(() => {
+    if (!clip || !state.taskId) return
+    let cancelled = false
+    setSubsLoading(true)
+    setSubsError('')
+    getSubtitles(state.taskId, Math.max(0, clip.start_ms - 60000), clip.end_ms + 60000, Number(subLines))
+      .then((list) => {
+        if (cancelled) return
+        setAllSubs(list.map((s) => ({ ...s, key: `${s.start_ms}-${s.end_ms}` })))
+        setSubEdits({})
+        setSubDeleted({})
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setAllSubs([])
+        setSubsError(e.status === 404 ? '이 영상은 자막 데이터가 없어요.' : '자막을 불러오지 못했어요.')
+      })
+      .finally(() => !cancelled && setSubsLoading(false))
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clip?.rank, state.taskId, subLines]) // 줄 수를 바꾸면 새 규칙으로 다시 받는다(수정/삭제는 초기화)
+
+  // 현재 구간과 겹치는 자막만 + 사용자 수정/삭제 반영
+  const subs = useMemo(
+    () =>
+      allSubs
+        .filter((s) => s.end_ms > range.start && s.start_ms < range.end && !subDeleted[s.key])
+        .map((s) => (s.key in subEdits ? { ...s, text: subEdits[s.key] } : s)),
+    [allSubs, range.start, range.end, subEdits, subDeleted],
+  )
 
   // (2) 슬라이더로 시작점(range.start)을 바꾸면 영상 재생 위치도 따라간다.
   useEffect(() => {
@@ -78,6 +123,11 @@ export default function Edit() {
         textColor: style.text,
         titlePosition: style.pos,
         fontSize: FONT_SIZE_MAP[style.size] || 'medium',
+        // 자막: 꺼져 있거나 줄이 없으면 백엔드가 기존 렌더와 동일하게 처리
+        subtitleEnabled: subEnabled,
+        subtitles: subs.filter((s) => s.text.trim()).map(({ start_ms, end_ms, text }) => ({ start_ms, end_ms, text })),
+        subtitlePosition: subPos,
+        subtitleSize: SUBTITLE_SIZE_API[subSize] || 'medium',
       })
       update({ renderId: data.render_id, title })
       navigate('/done')
@@ -112,6 +162,7 @@ export default function Edit() {
         <div className="max-w-5xl mx-auto px-5 flex gap-6">
           {[
             ['trim', '구간 조정', I.scissors],
+            ['subtitle', '자막', I.mic],
             ['style', '제목·스타일', I.palette],
           ].map(([key, label, icon]) => (
             <button
@@ -197,6 +248,36 @@ export default function Edit() {
               </div>
             </div>
           </>
+        ) : tab === 'subtitle' ? (
+          state.taskId ? (
+            <SubtitleTab
+              taskId={state.taskId}
+              range={range}
+              style={style}
+              title={currentTitle}
+              subs={subs}
+              loading={subsLoading}
+              loadError={subsError}
+              enabled={subEnabled}
+              setEnabled={setSubEnabled}
+              position={subPos}
+              setPosition={setSubPos}
+              size={subSize}
+              setSize={setSubSize}
+              lineCount={subLines}
+              setLineCount={(v) => {
+                if (v === subLines) return
+                // 줄 수를 바꾸면 자막을 새 규칙으로 다시 받아 수정/삭제가 사라지므로 수정한 게 있을 때만 확인
+                const edited = Object.keys(subEdits).length > 0 || Object.keys(subDeleted).length > 0
+                if (edited && !window.confirm('줄 수를 바꾸면 수정한 자막이 초기화됩니다.\n계속할까요?')) return
+                setSubLines(v)
+              }}
+              onEditText={(key, text) => setSubEdits((m) => ({ ...m, [key]: text }))}
+              onDelete={(key) => setSubDeleted((m) => ({ ...m, [key]: true }))}
+            />
+          ) : (
+            <p className="text-center text-sm text-gray-400">영상 정보가 없어 자막을 편집할 수 없어요.</p>
+          )
         ) : (
           <div className="grid md:grid-cols-2 gap-10 items-start">
             {/* 미리보기 — 줄바꿈/글자폭/여백을 render.py 와 동일 규칙으로 계산해 WYSIWYG.
