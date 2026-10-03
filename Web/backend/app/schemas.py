@@ -47,6 +47,8 @@ class Clip(BaseModel):
     # 클립 대표 프레임 썸네일 URL (/api/thumbnail/{task_id}/{rank}).
     # worker 가 analyze() 결과에 덧붙인다. 추출 실패 시 None → 프론트가 그라데이션 폴백.
     thumbnail_url: Optional[str] = None
+    # 사용자용 선정 이유 3~4줄("라벨 · 내용"). 변환 실패/기존 캐시 결과에는 없음 -> None.
+    reason_display: Optional[list[str]] = None
 
 
 class ResultResponse(BaseModel):

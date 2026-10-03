@@ -18,10 +18,11 @@ export default function Analyzing() {
   const [error, setError] = useState('')
   const [phase, setPhase] = useState(state.taskId ? 'polling' : 'uploading') // 'uploading' | 'polling'
   const [uploadPct, setUploadPct] = useState(0)
-  // 브라우저 알림(Web Notification). 이미 허용돼 있으면 켜진 것으로 본다.
-  const [notifyOn, setNotifyOn] = useState(
-    typeof Notification !== 'undefined' && Notification.permission === 'granted',
-  )
+  // 브라우저 알림(Web Notification). 작업(task) 단위: 항상 꺼진 상태로 시작하고(브라우저 권한이
+  // 허용돼 있어도 켜진 것으로 보지 않는다), 완료/실패 알림을 1회 보내면 자동으로 꺼진다.
+  // 아무 곳에도 저장하지 않으므로 새 업로드/분석(컴포넌트 새 마운트)은 늘 꺼짐에서 시작한다.
+  const [notifyOn, setNotifyOn] = useState(false)
+  const notifiedTaskRef = useRef(null) // 알림을 이미 보낸 task_id (같은 작업에 중복 발송 방지)
   const cancelledRef = useRef(false)
   const uploadStartedRef = useRef(false) // StrictMode 이중 마운트 시 업로드 1회만 보장
   const uploadXhrRef = useRef(null)      // 진행 중 업로드 XHR (cleanup 에서 abort)
@@ -132,19 +133,29 @@ export default function Analyzing() {
     }
   }
 
-  // 분석 완료 시(done) 권한이 허용돼 있으면 브라우저 알림 발송.
+  // 분석 완료/실패 시, 알림을 켜 둔 경우에만 1회 발송하고 곧바로 끈다.
+  // (업로드 단계 실패처럼 task_id 가 아직 없는 오류는 "분석" 실패가 아니므로 보내지 않는다)
+  const finished = done ? 'done' : error && state.taskId ? 'failed' : null
   useEffect(() => {
-    if (!done) return
-    if (typeof Notification === 'undefined') return
-    if (Notification.permission !== 'granted') return
+    if (!finished || !notifyOn) return
+    if (notifiedTaskRef.current === state.taskId) return
+    notifiedTaskRef.current = state.taskId
+    setNotifyOn(false)
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
     try {
-      new Notification('분석 완료!', {
-        body: '쇼츠 추천 구간이 준비됐어요. 결과를 확인해 보세요.',
-      })
+      new Notification(
+        finished === 'done' ? '분석 완료!' : '분석에 실패했어요',
+        {
+          body:
+            finished === 'done'
+              ? '쇼츠 추천 구간이 준비됐어요. 결과를 확인해 보세요.'
+              : '다시 시도해 주세요.',
+        },
+      )
     } catch {
       // 발송 실패(권한 변동/모바일 제약 등) — 조용히 무시
     }
-  }, [done])
+  }, [finished, notifyOn, state.taskId])
 
   const catLabels = state.cats.length
     ? CATEGORIES.filter((c) => state.cats.includes(c.key)).map((c) => c.label).join(', ')
